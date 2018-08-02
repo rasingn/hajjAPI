@@ -9,7 +9,7 @@ namespace HajjCoin.Models
     [Table("Transaction")]
     public partial class Transaction
     {
-        [DatabaseGenerated(DatabaseGeneratedOption.None)]
+        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int TransactionID { get; set; }
 
         public int? SupplyerID { get; set; }

@@ -140,7 +140,7 @@ namespace HajjCoin.Controllers
         public IHttpActionResult AddCard()
         {
             configCards configCards = new configCards();
-            configCards.CardID =  Guid.NewGuid();
+            configCards.CardID = Guid.NewGuid();
             configCards.HolderID = 2;
             configCards.NoOfCoins = 50;
             configCards.ActionDate = System.DateTime.Now;
@@ -156,23 +156,25 @@ namespace HajjCoin.Controllers
 
         [HttpPost]
         [Route("api/hajjCoin/VerifyTransaction/{cardQR}/{Total}")]///{SupplierID}")]
-        public IHttpActionResult VerifyTransaction(Guid cardQR, int Total)
+        public IHttpActionResult VerifyTransaction(string cardQR, int Total)
         {
+            var cQR = Guid.Parse(cardQR);
             //return class contains password or not found if there is no password
             Messages msg = new Messages();
             using (db = new HajjCoinsModel())
             {
                 configCards configCards = new configCards();
-                var card = db.configCards.Where(a => a.CardID == cardQR);
-                if (card != null)
+
+                var card = db.configCards.Where(a => a.CardID == cQR).ToList();
+                if (card.Count > 0)
                 {
-                    var coin = db.configCards.Where(m => m.NoOfCoins >= Total);
+                    var coin = db.configCards.Where(m => m.NoOfCoins >= Total).ToList();
 
                     //Check no of coins
-                    if (coin != null)
+                    if (coin.Count > 0)
                     {
 
-                        msg.message = "Verified";
+                        msg.message = "Amount of " + Total + " hajjCoins will be debited from your account.";
                         msg.status = true;
 
                         return Ok(msg);
@@ -180,7 +182,7 @@ namespace HajjCoin.Controllers
                     }
                     else
                     {
-                        msg.message = "Coins are not enough";
+                        msg.message = "Your hajjCoins balance is not enough";
                         msg.status = false;
 
                         return Ok(msg);
@@ -189,7 +191,7 @@ namespace HajjCoin.Controllers
                 else
                 {
 
-                    msg.message = "Card Not Found";
+                    msg.message = "Your hajjCoins card Not Found";
                     msg.status = false;
 
                     return Ok(msg);
@@ -205,115 +207,104 @@ namespace HajjCoin.Controllers
         }
 
         [HttpPost]
-        [Route("api/hajjCoin/performTransaction/{cardQR}/{Total}/{SupplierID}")]
-        public IHttpActionResult PerformTransaction(Guid cardQR, int Total, int SupplierID)
+        [Route("api/hajjCoin/performTransaction/{cardQR}/{Total}/{SupplierID}/{password}")]
+        public IHttpActionResult PerformTransaction(string cardQR, int Total, int SupplierID, int password)
         {
+            var cQR = Guid.Parse(cardQR);
             //return class contains password or not found if there is no password
             Messages msg = new Messages();
             using (db = new HajjCoinsModel())
             {
                 configCards configCards = new configCards();
-                var card = db.configCards.Where(a => a.CardID == cardQR);
-                if (card != null)
+                var CoinsCount = db.configCards.Where(a => a.CardID == cQR).Select(a => a.NoOfCoins).FirstOrDefault();
+                if (CoinsCount >= Total)
                 {
-                    var coin = db.configCards.Where(m => m.NoOfCoins >= Total);
 
-                    //Check no of coins
-                    if (coin != null)
+
+
+
+                    //var coinsList = db.Coins.Where(a => a.CardID == cQR).ToList();
+
+                    //var validCoins = (from coinsList in db.Coins
+
+                    //                  join usedList in db.TransactionsCoinsSupplier
+                    //                  on coinsList.CoinID equals usedList.CoinsID
+                    //                  where db.TransactionsCoinsSupplier.Contains(usedList.CoinsID)
+                    //                  select new { coinsList.CoinID }).ToList();
+                    var trans_coinList = db.TransactionsCoinsSupplier.Select(x=>x.CoinsID).ToArray();
+                    var validCoins = db.Coins.Where(p=> !trans_coinList.Contains(p.CoinID)).ToList();
+
+
+                    if (validCoins.Count > 0)
                     {
+                        var cardCoin = db.configCards.Where(a => a.CardID == cQR).FirstOrDefault();
+                        db.Entry(cardCoin).State = EntityState.Modified;
+                        cardCoin.NoOfCoins -= Total;
+                        db.SaveChanges();
 
+                        Transaction tr = new Transaction();
+                        tr.TotalCoinsUsed = Total;
+                        tr.TransactionDate = System.DateTime.Now;
+                        tr.SupplyerID = SupplierID;
+                        db.Transaction.Add(tr);
+                        db.SaveChanges();
 
-                        var r = db.Coins.Where(a => a.CardID == cardQR).ToList();
-
-                        if (r != null)
+                        for (int i = 0; i < Total; i++)
                         {
-                            //Option 1
-                            /* idea from: https://stackoverflow.com/questions/22907820/lambda-expression-join-multiple-tables-with-select-and-where-clause */
+                            TransactionsCoinsSupplier coin = new TransactionsCoinsSupplier();
+                            coin.CoinsID = validCoins[i].CoinID;
+                            coin.TransactionID = tr.TransactionID;
+                            db.TransactionsCoinsSupplier.Add(coin);
 
-                            ////return coins which is not used in transaction
-                            //var x = db.Coins.Join(db.Coins, u => u.CoinID, t => t.CoinID,
-                            //(u, t) => new { u, t }).
-                            //Join(db.TransactionsCoinsSupplier, tc => tc.u.CoinID, to => to.CoinsID,
-                            //(tc, to) => new { tc, to })
-                            //.Where(m => m.tc.u.CoinID != 1)
-                            //.Select(m => new Coins
-                            //{
-                            //    CoinID = m.tc.u.CoinID
-                            //}).FirstOrDefault();
 
-                            //Option 2 
-                            /*idea from: http://www.tutorialsteacher.com/linq/linq-joining-operator-join */
-                            var innerJoin = db.Coins.Join(// outer sequence 
-                      db.TransactionsCoinsSupplier,  // inner sequence 
-                      c => c.CoinID,    // outerKeySelector
-                      t => t.CoinsID,  // innerKeySelector
-                      (c, t) => new  // result selector
-                      {
-                          Coin = c.CoinID
-                      }).FirstOrDefault();
 
-                            Transaction tr = new Transaction();
-                            tr.TotalCoinsUsed = Total;
-                            tr.TransactionDate = System.DateTime.Now;
-                            tr.SupplyerID = SupplierID;
-                            db.Transaction.Add(tr);
-                            db.SaveChanges();
-
-                            //for (int i = 0; i < Total; i++)
-                            //{
-                            //    TransactionsCoinsSupplier tcs = new TransactionsCoinsSupplier();
-                            //    tcs.Coins.Coin =
-                            //}
-                            //TransactionsCoinsSupplier tcs = new TransactionsCoinsSupplier();
-                            //tcs.TransactionID = tr.TransactionID;
-                            //tcs.CoinsID = x.CoinID;
 
                         }
 
-
-
-
-
-
-
-
-                        msg.message = "Verified";
+                        msg.message = Total + " hajjCoins successfully received";
                         msg.status = true;
 
                         return Ok(msg);
 
+
+
+
+
                     }
                     else
                     {
-                        msg.message = "Coins are not enough";
+
+                        msg.message = "Your hajjCoins balance is not enough";
                         msg.status = false;
 
                         return Ok(msg);
                     }
+
+
+
                 }
                 else
                 {
-
-                    msg.message = "Card Not Found";
+                    msg.message = "Your hajjCoins balance is not enough";
                     msg.status = false;
 
                     return Ok(msg);
                 }
             }
+
+
+
+
+
+
+
         }
 
 
 
-
-
+        #endregion
 
 
     }
-
-
-
-    #endregion
-
-
 }
 
